@@ -751,11 +751,11 @@ function tcpNewCons(nextOp: Operator): Operator {
 
 // Main function
 function runQueries(): void {
-    const queries: Operator[] = [chain(ident, dumpTupleOp(console))];
+    const queries: Operator[] = [chain(ident, dumpAsCSV(console))];
     
     // Create test data
     const tuples: Tuple[] = [];
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 5; i++) {
         const macSrc = new Uint8Array([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
         const macDst = new Uint8Array([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
         

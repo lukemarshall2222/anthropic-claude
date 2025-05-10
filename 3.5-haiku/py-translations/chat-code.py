@@ -1,8 +1,5 @@
-from typing import Dict, Any, List, Callable, Tuple, Optional
 from enum import Enum
 import ipaddress
-import struct
-import csv
 import sys
 
 class OpResult(Enum):
@@ -13,9 +10,9 @@ class OpResult(Enum):
     EMPTY = 'empty'
 
 class Operator:
-    def __init__(self, next_func=None, reset_func=None):
-        self.next = next_func or (lambda tup: None)
-        self.reset = reset_func or (lambda tup: None)
+    def __init__(self, next=None, reset=None):
+        self.next = next or (lambda tup: None)
+        self.reset = reset or (lambda tup: None)
 
 def string_of_mac(mac_bytes: bytes) -> str:
     return ':'.join(f'{b:02x}' for b in mac_bytes)
@@ -75,6 +72,7 @@ def epoch(epoch_width, key_out, next_op):
     eid = [0]
 
     def process(tup):
+        print(type(tup['time']))
         time = float_of_op_result(tup['time'])
         
         if epoch_boundary[0] == 0.0:
@@ -304,11 +302,11 @@ def dump_tuple_to_stdout(out_file=sys.stdout):
 
 def main():
     # Example query setup
-    queries = [ident(dump_tuple_to_stdout())]
+    queries = [(dump_tuple_to_stdout())]
     
     # Create sample tuples for testing
     sample_tuples = []
-    for i in range(20):
+    for i in range(5):
         tup = {
             'time': ('float', float(i)),
             'eth.src': ('mac', b'\x00\x11\x22\x33\x44\x55'),
@@ -331,4 +329,4 @@ def main():
             query.next(tup)
 
 if __name__ == "__main__":
-    main()
+     main()

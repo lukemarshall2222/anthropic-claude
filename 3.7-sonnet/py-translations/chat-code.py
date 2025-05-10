@@ -4,10 +4,8 @@
 
 # Operators act on named "tuples" which are maps from strings to op_result types
 import ipaddress
-import struct
-import collections
-from typing import Dict, List, Tuple, Callable, Any, Optional, Union, Set
-import time
+from typing import List, Tuple, Callable, Optional
+from sys import stdout
 
 # Equivalent to OCaml's variant type using Python classes
 class OpResult:
@@ -119,14 +117,14 @@ class Operator:
 
 # Types for operator creators
 OpCreator = Callable[[Operator], Operator]
-DblOpCreator = Callable[[Operator], Tuple[Operator, Operator]]
+DblOpCreator = Callable[[Operator], tuple[Operator, Operator]]
 
 # Chaining operators
 def chain_op(op_creator_func: OpCreator, next_op: Operator) -> Operator:
     """Right associative 'chaining' operator for passing output to the next operator"""
     return op_creator_func(next_op)
 
-def chain_double_op(op_creator_func: DblOpCreator, op: Operator) -> Tuple[Operator, Operator]:
+def chain_double_op(op_creator_func: DblOpCreator, op: Operator) -> tuple[Operator, Operator]:
     """Chaining for operators that return two operators"""
     return op_creator_func(op)
 
@@ -190,7 +188,7 @@ def string_of_tuple(input_tuple: Tuple) -> str:
         result += f'"{key}" => {string_of_op_result(val)}, '
     return result
 
-def tuple_of_list(tup_list: List[Tuple[str, OpResult]]) -> Tuple:
+def tuple_of_list(tup_list: List[tuple[str, OpResult]]) -> Tuple:
     """Creates a Tuple from a list of key-value pairs"""
     result = Tuple()
     for key, value in tup_list:
@@ -520,10 +518,10 @@ def split(l: Operator, r: Operator) -> Operator:
     return Operator(next_func, reset_func)
 
 # Define key extractor type
-KeyExtractor = Callable[[Tuple], Tuple[Tuple, Tuple]]
+KeyExtractor = Callable[[Tuple], tuple[Tuple, Tuple]]
 
 def join(left_extractor: KeyExtractor, right_extractor: KeyExtractor, 
-         next_op: Operator, eid_key="eid") -> Tuple[Operator, Operator]:
+         next_op: Operator, eid_key="eid") -> tuple[Operator, Operator]:
     """Joins two streams based on matching keys"""
     h_tbl1 = {}
     h_tbl2 = {}
@@ -569,7 +567,7 @@ def join(left_extractor: KeyExtractor, right_extractor: KeyExtractor,
         handle_join_side(h_tbl2, h_tbl1, right_curr_epoch, left_curr_epoch, right_extractor)
     )
 
-def rename_filtered_keys(renamings_pairs: List[Tuple[str, str]], in_tup: Tuple) -> Tuple:
+def rename_filtered_keys(renamings_pairs: List[tuple[str, str]], in_tup: Tuple) -> Tuple:
     """Renames selected keys in a tuple"""
     new_tup = Tuple.empty()
     
@@ -662,11 +660,11 @@ def tcp_new_cons(next_op: Operator) -> Operator:
 # Main Entry Points
 def run_queries():
     """Run the defined queries"""
-    queries = [chain_op(ident, dump_tuple_op(print))]
+    queries = [chain_op(s, dump_tuple_op(stdout))]
     
     # Create test data
     tuples = []
-    for i in range(20):
+    for i in range(5):
         tup = Tuple.empty()
         tup.add("time", Float(0.0 + float(i)))
         

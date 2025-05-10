@@ -7,7 +7,7 @@ type OpResult =
     | { type: 'Int', value: number }
     | { type: 'IPv4', value: string }
     | { type: 'MAC', value: Buffer }
-    | { type: 'Empty' };
+    | { type: 'Empty' }
 
 // Type for a tuple (Map equivalent)
 type Tuple = Map<string, OpResult>;
@@ -381,25 +381,487 @@ function epoch(epochWidth: number, keyOut: string, nextOp: Operator): Operator {
     };
 }
 
-// Main runner (similar to previous implementation)
-function runQueries() {
-    const queries: Operator[] = [identOperator(dumpTuple(process.stdout))];
-    
-    const tuples: Tuple[] = Array.from({ length: 20 }, (_, i) => {
+// Continuation of previous TypeScript translation
+
+// More advanced query implementations
+function distinctSrcs(nextOp: Operator): Operator {
+    return epoch(1.0, 'eid', 
+        distinct(
+            tup => filterGroups(['ipv4.src'], tup),
+            groupby(singleGroup, counter, 'srcs', nextOp)
+        )
+    );
+}
+
+function tcpNewCons(nextOp: Operator): Operator {
+    const threshold = 40;
+    return epoch(1.0, 'eid', 
+        filter(
+            tup => 
+                lookupInt('ipv4.proto', tup) === 6 && 
+                lookupInt('l4.flags', tup) === 2,
+            groupby(
+                tup => filterGroups(['ipv4.dst'], tup), 
+                counter, 
+                'cons', 
+                filter(
+                    tup => lookupInt('cons', tup) >= threshold, 
+                    nextOp
+                )
+            )
+        )
+    );
+}
+
+function sshBruteForce(nextOp: Operator): Operator {
+    const threshold = 40;
+    return epoch(1.0, 'eid', 
+        filter(
+            tup => 
+                lookupInt('ipv4.proto', tup) === 6 && 
+                lookupInt('l4.dport', tup) === 22,
+            distinct(
+                tup => filterGroups(['ipv4.src', 'ipv4.dst', 'ipv4.len'], tup),
+                groupby(
+                    tup => filterGroups(['ipv4.dst', 'ipv4.len'], tup), 
+                    counter, 
+                    'srcs', 
+                    filter(
+                        tup => lookupInt('srcs', tup) >= threshold, 
+                        nextOp
+                    )
+                )
+            )
+        )
+    );
+}
+
+function superSpreader(nextOp: Operator): Operator {
+    const threshold = 40;
+    return epoch(1.0, 'eid', 
+        distinct(
+            tup => filterGroups(['ipv4.src', 'ipv4.dst'], tup),
+            groupby(
+                tup => filterGroups(['ipv4.src'], tup), 
+                counter, 
+                'dsts', 
+                filter(
+                    tup => lookupInt('dsts', tup) >= threshold, 
+                    nextOp
+                )
+            )
+        )
+    );
+}
+
+function portScan(nextOp: Operator): Operator {
+    const threshold = 40;
+    return epoch(1.0, 'eid', 
+        distinct(
+            tup => filterGroups(['ipv4.src', 'l4.dport'], tup),
+            groupby(
+                tup => filterGroups(['ipv4.src'], tup), 
+                counter, 
+                'ports', 
+                filter(
+                    tup => lookupInt('ports', tup) >= threshold, 
+                    nextOp
+                )
+            )
+        )
+    );
+}
+
+function ddos(nextOp: Operator): Operator {
+    const threshold = 45;
+    return epoch(1.0, 'eid', 
+        distinct(
+            tup => filterGroups(['ipv4.src', 'ipv4.dst'], tup),
+            groupby(
+                tup => filterGroups(['ipv4.dst'], tup), 
+                counter, 
+                'srcs', 
+                filter(
+                    tup => lookupInt('srcs', tup) >= threshold, 
+                    nextOp
+                )
+            )
+        )
+    );
+}
+
+function synFloodSonata(nextOp: Operator): Operator[] {
+    const threshold = 3;
+    const epochDur = 1.0;
+
+    function syns(innerNextOp: Operator): Operator {
+        return epoch(epochDur, 'eid', 
+            filter(
+                tup => 
+                    lookupInt('ipv4.proto', tup) === 6 && 
+                    lookupInt('l4.flags', tup) === 2,
+                groupby(
+                    tup => filterGroups(['ipv4.dst'], tup), 
+                    counter, 
+                    'syns', 
+                    innerNextOp
+                )
+            )
+        );
+    }
+
+    function synacks(innerNextOp: Operator): Operator {
+        return epoch(epochDur, 'eid', 
+            filter(
+                tup => 
+                    lookupInt('ipv4.proto', tup) === 6 && 
+                    lookupInt('l4.flags', tup) === 18,
+                groupby(
+                    tup => filterGroups(['ipv4.src'], tup), 
+                    counter, 
+                    'synacks', 
+                    innerNextOp
+                )
+            )
+        );
+    }
+
+    function acks(innerNextOp: Operator): Operator {
+        return epoch(epochDur, 'eid', 
+            filter(
+                tup => 
+                    lookupInt('ipv4.proto', tup) === 6 && 
+                    lookupInt('l4.flags', tup) === 16,
+                groupby(
+                    tup => filterGroups(['ipv4.dst'], tup), 
+                    counter, 
+                    'acks', 
+                    innerNextOp
+                )
+            )
+        );
+    }
+
+    // Complex join operations
+    const [joinOp1, joinOp2] = join(
+        tup => [
+            filterGroups(['host'], tup), 
+            filterGroups(['syns+synacks'], tup)
+        ],
+        tup => [
+            new Map([['host', tup.get('ipv4.dst')!]]), 
+            filterGroups(['acks'], tup)
+        ],
+        mapOperator(
+            tup => {
+                const synsTotal = lookupInt('syns+synacks', tup);
+                const acksTotal = lookupInt('acks', tup);
+                tup.set('syns+synacks-acks', { type: 'Int', value: synsTotal - acksTotal });
+                return tup;
+            },
+            filter(
+                tup => lookupInt('syns+synacks-acks', tup) >= threshold, 
+                nextOp
+            )
+        )
+    );
+
+    const [joinOp3, joinOp4] = join(
+        tup => [
+            new Map([['host', tup.get('ipv4.dst')!]]), 
+            filterGroups(['syns'], tup)
+        ],
+        tup => [
+            new Map([['host', tup.get('ipv4.src')!]]), 
+            filterGroups(['synacks'], tup)
+        ],
+        mapOperator(
+            tup => {
+                const synsTotal = lookupInt('syns', tup);
+                const synacksTotal = lookupInt('synacks', tup);
+                tup.set('syns+synacks', { type: 'Int', value: synsTotal + synacksTotal });
+                return tup;
+            },
+            joinOp1
+        )
+    );
+
+    return [
+        syns(joinOp3),
+        synacks(joinOp4),
+        acks(joinOp2)
+    ];
+}// Continuing the previous TypeScript implementation
+
+function completedFlows(nextOp: Operator): Operator[] {
+    const threshold = 1;
+    const epochDur = 30.0;
+
+    function syns(innerNextOp: Operator): Operator {
+        return epoch(epochDur, 'eid', 
+            filter(
+                tup => 
+                    lookupInt('ipv4.proto', tup) === 6 && 
+                    lookupInt('l4.flags', tup) === 2,
+                groupby(
+                    tup => filterGroups(['ipv4.dst'], tup), 
+                    counter, 
+                    'syns', 
+                    innerNextOp
+                )
+            )
+        );
+    }
+
+    function fins(innerNextOp: Operator): Operator {
+        return epoch(epochDur, 'eid', 
+            filter(
+                tup => 
+                    lookupInt('ipv4.proto', tup) === 6 && 
+                    (lookupInt('l4.flags', tup) & 1) === 1,
+                groupby(
+                    tup => filterGroups(['ipv4.src'], tup), 
+                    counter, 
+                    'fins', 
+                    innerNextOp
+                )
+            )
+        );
+    }
+
+    const [op1, op2] = join(
+        tup => [
+            new Map([['host', tup.get('ipv4.dst')!]]), 
+            filterGroups(['syns'], tup)
+        ],
+        tup => [
+            new Map([['host', tup.get('ipv4.src')!]]), 
+            filterGroups(['fins'], tup)
+        ],
+        mapOperator(
+            tup => {
+                const synsTotal = lookupInt('syns', tup);
+                const finsTotal = lookupInt('fins', tup);
+                tup.set('diff', { type: 'Int', value: synsTotal - finsTotal });
+                return tup;
+            },
+            filter(
+                tup => lookupInt('diff', tup) >= threshold, 
+                nextOp
+            )
+        )
+    );
+
+    return [
+        syns(op1),
+        fins(op2)
+    ];
+}
+
+function slowloris(nextOp: Operator): Operator[] {
+    const t1 = 5;    // minimum number of connections
+    const t2 = 500;  // minimum total bytes
+    const t3 = 90;   // maximum bytes per connection
+    const epochDur = 1.0;
+
+    function nConns(innerNextOp: Operator): Operator {
+        return epoch(epochDur, 'eid', 
+            filter(
+                tup => lookupInt('ipv4.proto', tup) === 6,
+                distinct(
+                    tup => filterGroups(['ipv4.src', 'ipv4.dst', 'l4.sport'], tup),
+                    groupby(
+                        tup => filterGroups(['ipv4.dst'], tup), 
+                        counter, 
+                        'n_conns', 
+                        filter(
+                            tup => lookupInt('n_conns', tup) >= t1, 
+                            innerNextOp
+                        )
+                    )
+                )
+            )
+        );
+    }
+
+    function nBytes(innerNextOp: Operator): Operator {
+        return epoch(epochDur, 'eid', 
+            filter(
+                tup => lookupInt('ipv4.proto', tup) === 6,
+                groupby(
+                    tup => filterGroups(['ipv4.dst'], tup), 
+                    (val, tup) => sumInts('ipv4.len', val, tup), 
+                    'n_bytes', 
+                    filter(
+                        tup => lookupInt('n_bytes', tup) >= t2, 
+                        innerNextOp
+                    )
+                )
+            )
+        );
+    }
+
+    const [op1, op2] = join(
+        tup => [
+            filterGroups(['ipv4.dst'], tup), 
+            filterGroups(['n_conns'], tup)
+        ],
+        tup => [
+            filterGroups(['ipv4.dst'], tup), 
+            filterGroups(['n_bytes'], tup)
+        ],
+        mapOperator(
+            tup => {
+                const nConnsTotal = lookupInt('n_conns', tup);
+                const nBytesTotal = lookupInt('n_bytes', tup);
+                tup.set('bytes_per_conn', { 
+                    type: 'Int', 
+                    value: Math.floor(nBytesTotal / nConnsTotal) 
+                });
+                return tup;
+            },
+            filter(
+                tup => lookupInt('bytes_per_conn', tup) <= t3, 
+                nextOp
+            )
+        )
+    );
+
+    return [
+        nConns(op1),
+        nBytes(op2)
+    ];
+}
+
+function joinTest(nextOp: Operator): Operator[] {
+    const epochDur = 1.0;
+
+    function syns(innerNextOp: Operator): Operator {
+        return epoch(epochDur, 'eid', 
+            filter(
+                tup => 
+                    lookupInt('ipv4.proto', tup) === 6 && 
+                    lookupInt('l4.flags', tup) === 2,
+                innerNextOp
+            )
+        );
+    }
+
+    function synacks(innerNextOp: Operator): Operator {
+        return epoch(epochDur, 'eid', 
+            filter(
+                tup => 
+                    lookupInt('ipv4.proto', tup) === 6 && 
+                    lookupInt('l4.flags', tup) === 18,
+                innerNextOp
+            )
+        );
+    }
+
+    const [op1, op2] = join(
+        tup => [
+            new Map([['host', tup.get('ipv4.src')!]]), 
+            new Map([['remote', tup.get('ipv4.dst')!]])
+        ],
+        tup => [
+            new Map([['host', tup.get('ipv4.dst')!]]), 
+            filterGroups(['time'], tup)
+        ],
+        nextOp
+    );
+
+    return [
+        syns(op1),
+        synacks(op2)
+    ];
+}
+
+function q3(nextOp: Operator): Operator {
+    return epoch(100.0, 'eid', 
+        distinct(
+            tup => filterGroups(['ipv4.src', 'ipv4.dst'], tup), 
+            nextOp
+        )
+    );
+}
+
+function q4(nextOp: Operator): Operator {
+    return epoch(10000.0, 'eid', 
+        groupby(
+            tup => filterGroups(['ipv4.dst'], tup), 
+            counter, 
+            'pkts', 
+            nextOp
+        )
+    );
+}
+
+function generateSampleTuples(count: number): Tuple[] {
+    return Array.from({ length: count }, (_, i): Tuple => {
         const tup = new Map<string, OpResult>();
         
-        // Populate tuple with sample data (same as previous implementation)
         tup.set('time', { type: 'Float', value: i });
-        tup.set('eth.src', { type: 'MAC', value: Buffer.from([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]) });
-        tup.set('eth.dst', { type: 'MAC', value: Buffer.from([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]) });
+        tup.set('eth.src', { 
+            type: 'MAC', 
+            value: Buffer.from([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]) 
+        });
+        tup.set('eth.dst', { 
+            type: 'MAC', 
+            value: Buffer.from([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]) 
+        });
         tup.set('eth.ethertype', { type: 'Int', value: 0x0800 });
+        
+        tup.set('ipv4.hlen', { type: 'Int', value: 20 });
+        tup.set('ipv4.proto', { type: 'Int', value: 6 });
+        tup.set('ipv4.len', { type: 'Int', value: 60 });
+        tup.set('ipv4.src', { type: 'IPv4', value: '127.0.0.1' });
+        tup.set('ipv4.dst', { type: 'IPv4', value: '127.0.0.1' });
+        
+        tup.set('l4.sport', { type: 'Int', value: 440 });
+        tup.set('l4.dport', { type: 'Int', value: 50000 });
+        tup.set('l4.flags', { type: 'Int', value: 10 });
         
         return tup;
     });
+}
+
+// Comprehensive query runner
+function runAllQueries() {
+    const operators: Operator[] = [
+        // Simple operators
+        identOperator(dumpTuple(process.stdout)),
+        countPkts(dumpTuple(process.stdout)),
+        pktsPerSrcDst(dumpTuple(process.stdout)),
+        
+        // Detection queries
+        tcpNewCons(dumpTuple(process.stdout)),
+        sshBruteForce(dumpTuple(process.stdout)),
+        superSpreader(dumpTuple(process.stdout)),
+        portScan(dumpTuple(process.stdout)),
+        ddos(dumpTuple(process.stdout)),
+        
+        // Advanced detection queries
+        ...synFloodSonata(dumpTuple(process.stdout)),
+        ...completedFlows(dumpTuple(process.stdout)),
+        ...slowloris(dumpTuple(process.stdout)),
+        ...joinTest(dumpTuple(process.stdout)),
+        
+        // Specific queries
+        q3(dumpTuple(process.stdout)),
+        q4(dumpTuple(process.stdout))
+    ];
+
+    const tuples = generateSampleTuples(5);  // Increased sample size
 
     tuples.forEach(tup => {
-        queries.forEach(query => query.next(tup));
+        operators.forEach(op => op.next(tup));
+    });
+
+    // Final reset for all operators
+    tuples.forEach(tup => {
+        operators.forEach(op => op.reset(tup));
     });
 }
 
-runQueries();
+// Run the comprehensive query set
+runAllQueries();
